@@ -41,9 +41,9 @@ Usage
       --download-last      download last module
       --extract            extract all modules
       --check              run directives check
-      --overlapping-check  run module directives overlapping check
+      --overlapping-check  run directives overlapping check
 
-Script create ``modules``, ``nginx`` and ``nginx.org`` directories in current working directory.
+Script creates ``modules``, ``nginx`` and ``nginx.org`` directories in current working directory.
 
 Automation via cron
 -------------------
@@ -57,4 +57,19 @@ Configure cron job, for example, in file ``/etc/cron.d/nginx-vim``:
     MAILTO=your@email-address
 
     0 0 * * * root cd /opt/nginx-vim; ./nginx-vim -q --sync --download-all --extract --check
+
+However root permissions not required and script can be runned under unprivileged user, for example:
+
+- # useradd nginx-vim
+- # su - nginx-vim
+- $ git clone https://github.com/makhomed/nginx-vim.git
+- $ crontab -e
+
+.. code-block:: none
+
+    RANDOM_DELAY=360
+
+    MAILTO=your@email-address
+
+    0 0 * * * cd /home/nginx-vim/nginx-vim; ./nginx-vim -q --sync --download-all --extract --check
 
