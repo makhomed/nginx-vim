@@ -500,7 +500,7 @@ def main():
     parser.add_argument("--download-last", required=False, action="store_true", dest="download_last", help="download last module")
     parser.add_argument("--extract", required=False, action="store_true", dest="extract", help="extract all modules")
     parser.add_argument("--check", required=False, action="store_true", dest="check", help="run directives check")
-    parser.add_argument("--overlapping-check", required=False, action="store_true", dest="overlapping_check", help="run module directives overlapping check")
+    parser.add_argument("--overlapping-check", required=False, action="store_true", dest="overlapping_check", help="run directives overlapping check")
     args = parser.parse_args()
     VimSyntax(args).run()
 
