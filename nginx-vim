@@ -1,0 +1,509 @@
+#!/usr/bin/python
+
+"""
+ * install python
+ * install pip https://pip.pypa.io/en/stable/installing/
+ * pip install requests
+ * install Mercurial
+ * install tar
+ * install unzip
+"""
+
+import argparse
+import codecs
+import os
+import os.path
+import re
+import sys
+import shutil
+import subprocess
+import requests
+
+
+class Config(object):
+    def __init__(self, config_filename):
+        self.nginx_deprecated = set()
+        self.nginx_undocumented_by_purpose = set()
+        self.modules_deprecated = set()
+        self.modules_txt = dict()
+        self.modules_uri = dict()
+        self.modules_src = dict()
+        self.modules_force_include = dict()
+        self.modules_include = dict()
+        self.modules_exclude = dict()
+        self.modules_directives = dict()
+        self.modules = list()
+        with codecs.open(config_filename, encoding='UTF-8') as config_file:
+            lines = config_file.read().split('\n')
+        for line in lines:
+            comment_start = line.find('#')
+            if comment_start > -1:
+                line = line[:comment_start]
+            line = line.strip()
+            if not line:
+                continue
+            line = line.replace("\t", "\x20")
+            name, value = line.split(None, 1)
+            if name == 'nginx_deprecated':
+                self.nginx_deprecated.add(value)
+            elif name == 'nginx_undocumented_by_purpose':
+                self.nginx_undocumented_by_purpose.add(value)
+            elif name == 'modules_deprecated':
+                self.modules_deprecated.add(value)
+            elif name == 'module':
+                name, _type, value = value.split(None, 2)
+                if '/' in name:
+                    sys.exit("symbol '/' not allowed in module name '%s'" % name)
+                if _type == 'txt':
+                    self.modules_txt[name] = value
+                elif _type == 'uri' or _type == 'url':
+                    self.modules_uri[name] = value
+                elif _type == 'src':
+                    if name in self.modules_src:
+                        sys.exit("module '%s' already defined" % name)
+                    self.modules_src[name] = value
+                    self.modules.append(name)
+                elif _type == 'force_include':
+                    force_includes = self.modules_force_include.get(name, set())
+                    force_includes.add(value)
+                    self.modules_force_include[name] = force_includes
+                elif _type == 'include':
+                    includes = self.modules_include.get(name, set())
+                    includes.add(value)
+                    self.modules_include[name] = includes
+                elif _type == 'exclude':
+                    excludes = self.modules_exclude.get(name, set())
+                    excludes.add(value)
+                    self.modules_exclude[name] = excludes
+                elif _type == 'directive':
+                    directives = self.modules_directives.get(name, set())
+                    directives.add(value)
+                    self.modules_directives[name] = directives
+                else:
+                    sys.exit("unknown module record type '%s'" % _type)
+            else:
+                sys.exit("unknown directive '%s'" % name)
+
+
+class Process(object):
+    def __init__(self, *args):
+        self.args = args
+        process = subprocess.Popen(args, stdin=None, stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True)
+        self.stdout, self.stderr = process.communicate()
+        self.returncode = process.returncode
+
+    def failed(self):
+        return self.returncode != 0
+
+    def print_info(self, message):
+        print(message + ": Process(", self.args, ") failed")
+        print("returncode:", self.returncode)
+        print("stdout:", self.stdout)
+        print("stderr:", self.stderr)
+
+
+class VimSyntax(object):
+    def __init__(self, args):
+        self.args = args
+        self.quiet = args.quiet
+        self.verbose = not self.quiet
+        self.config = Config(args.config_filename)
+        self.nginx_deprecated = self.config.nginx_deprecated
+        self.nginx_undocumented_by_purpose = self.config.nginx_undocumented_by_purpose
+        self.modules_deprecated = self.config.modules_deprecated
+        self.modules_txt = self.config.modules_txt
+        self.modules_uri = self.config.modules_uri
+        self.modules_src = self.config.modules_src
+        self.modules_dir = 'modules'
+        self.modules_force_include = self.config.modules_force_include
+        self.modules_include = self.config.modules_include
+        self.modules_exclude = self.config.modules_exclude
+        self.modules_directives = self.config.modules_directives
+        self.modules = self.config.modules
+        self.nginx_dir = 'nginx'
+        self.nginx_org_dir = 'nginx.org'
+        self.nginx_vim_sintax_filename = os.path.join(self.nginx_dir, 'contrib/vim/syntax/nginx.vim')
+        self.nginx_docs_dir = os.path.join(self.nginx_org_dir, 'xml/en/docs')
+        self.nginx_documentation_directives = set()
+        self.nginx_source_directives = set()
+        self.nginx_source_deprecated_directives = set()
+        self.modules_source_directives = dict()
+        self.modules_source_deprecated_directives = dict()
+        self.vim_syntax_nginx_directives = set(['listen'])
+        self.vim_syntax_nginx_deprecated_directives = set()
+        self.vim_syntax_modules_directives = set()
+        self.vim_syntax_modules_deprecated_directives = set()
+
+    def files(self, directory, ext):
+        entries = os.listdir(directory)
+        for entry in entries:
+            filename = os.path.join(directory, entry)
+            if os.path.isdir(filename):
+                for filename in self.files(filename, ext):
+                    yield filename
+            if os.path.isfile(filename):
+                if filename.endswith(ext):
+                    yield filename
+
+    def is_file_excluded(self, excludes, filename):
+        for entry in excludes:
+            if filename.endswith(entry):
+                return True
+        return False
+
+    def module_files(self, module, directory, ext):
+        if not os.path.isdir(directory):
+            sys.exit("\nERROR: directory '%s' not exists, you need download module '%s' and extract it before running check\n" % (directory, module))
+        excludes = self.modules_exclude.get(module, list())
+        entries = os.listdir(directory)
+        for entry in entries:
+            name = os.path.join(directory, entry)
+            if os.path.isdir(name):
+                for recursive_call_name in self.module_files(module, name, ext):
+                    yield recursive_call_name
+            if os.path.isfile(name):
+                if name.endswith(ext) and not self.is_file_excluded(excludes, name):
+                    yield name
+
+    def force_include_module_files(self, module):
+        module_dir = os.path.join(self.modules_dir, module)
+        for entry in os.listdir(module_dir):
+            name = os.path.join(module_dir, entry)
+            if os.path.isdir(name) and self.modules_force_include.get(module):
+                for force_include in self.modules_force_include[module]:
+                    yield os.path.join(name, force_include)
+
+    def include_module_files(self, module):
+        module_dir = os.path.join(self.modules_dir, module)
+        for entry in os.listdir(module_dir):
+            name = os.path.join(module_dir, entry)
+            if os.path.isdir(name) and self.modules_include.get(module):
+                for include in self.modules_include[module]:
+                    yield os.path.join(name, include)
+
+    def extract_source_directives(self, source_filename):
+        out = set()
+        parse = False
+        with codecs.open(source_filename, encoding='UTF-8') as source_file:
+            for line in source_file:
+                if re.match(r'^(static\s+ngx_command_t\s+)|(const\s+ngx_command_t\s+)|(ngx_command_t\s+).*$', line):
+                    parse = True
+                if re.match(r'^};$', line):
+                    parse = False
+                if parse:
+                    match = re.match(r'.*ngx_string\s*\(\s*"(?P<directive>\S+)"\s*\).*', line)
+                    if match:
+                        out.add(match.group('directive'))
+        return out
+
+    def force_include_extract_source_directives(self, source_filename):
+        out = set()
+        with codecs.open(source_filename, encoding='UTF-8') as source_file:
+            for line in source_file:
+                match = re.match(r'.*ngx_string\s*\("(?P<directive>\S+)"\).*', line)
+                if match:
+                    out.add(match.group('directive'))
+        return out
+
+    def extract_documentation_directives(self, documentation_filename):
+        with codecs.open(documentation_filename, encoding='UTF-8') as documentation_file:
+            for line in documentation_file:
+                match = re.match(r'<directive name="(?P<directive>\S+)">\s*$', line)
+                if match:
+                    self.nginx_documentation_directives.add(match.group('directive'))
+
+    def extract_vim_syntax_directives(self):
+        seen = set()
+        with codecs.open(self.nginx_vim_sintax_filename, encoding='UTF-8') as vim_syntax_file:
+            for line in vim_syntax_file:
+                match = re.match(r'^syn keyword (ngxDirective|ngxDirectiveBlock|ngxDirectiveImportant|ngxDirectiveControl|ngxDirectiveError) contained (?P<directive>\S+).*$', line)
+                if match:
+                    directive = match.group('directive')
+                    if directive in seen:
+                        print("ERROR: directive %s already defined in syntax/nginx.vim" % directive)
+                    else:
+                        self.vim_syntax_nginx_directives.add(directive)
+                        seen.add(directive)
+                match = re.match(r'^syn keyword (ngxDirectiveDeprecated) contained (?P<directive>\S+).*$', line)
+                if match:
+                    directive = match.group('directive')
+                    if directive in seen:
+                        print("ERROR: directive %s already defined in syntax/nginx.vim" % directive)
+                    else:
+                        self.vim_syntax_nginx_deprecated_directives.add(directive)
+                        seen.add(directive)
+                match = re.match(r'^syn keyword (ngxDirectiveThirdParty) contained (?P<directive>\S+).*$', line)
+                if match:
+                    directive = match.group('directive')
+                    if directive in seen:
+                        print("ERROR: directive %s already defined in syntax/nginx.vim" % directive)
+                    else:
+                        self.vim_syntax_modules_directives.add(directive)
+                        seen.add(directive)
+                match = re.match(r'^syn keyword (ngxDirectiveThirdPartyDeprecated) contained (?P<directive>\S+).*$', line)
+                if match:
+                    directive = match.group('directive')
+                    if directive in seen:
+                        print("ERROR: directive %s already defined in syntax/nginx.vim" % directive)
+                    else:
+                        self.vim_syntax_modules_deprecated_directives.add(directive)
+                        seen.add(directive)
+
+    def extract_nginx_documentation_directives(self):
+        for documentation_filename in self.files(self.nginx_docs_dir, '.xml'):
+            self.extract_documentation_directives(documentation_filename)
+
+    def extract_nginx_source_directives(self):
+        for source_filename in self.files(self.nginx_dir, '.c'):
+            self.nginx_source_directives.update(self.extract_source_directives(source_filename))
+        for directive in self.nginx_source_directives.copy():
+            if directive in self.nginx_deprecated:
+                self.nginx_source_directives.remove(directive)
+                self.nginx_source_deprecated_directives.add(directive)
+
+    def extract_modules_source_directives(self):
+        for module in self.modules:
+            module_dir = os.path.join(self.modules_dir, module)
+            module_directives = self.modules_directives.get(module, set()).copy()
+            module_deprecated_directives = set()
+            for module_filename in self.module_files(module, module_dir, '.c'):
+                module_directives.update(self.extract_source_directives(module_filename))
+            for force_include_filename in self.force_include_module_files(module):
+                module_directives.update(self.force_include_extract_source_directives(force_include_filename))
+            for include_filename in self.include_module_files(module):
+                module_directives.update(self.extract_source_directives(include_filename))
+            for directive in module_directives.copy():
+                if directive in self.modules_deprecated:
+                    module_directives.remove(directive)
+                    module_deprecated_directives.add(directive)
+            self.modules_source_directives[module] = module_directives
+            self.modules_source_deprecated_directives[module] = module_deprecated_directives
+
+    def print_set(self, name, _set):
+        if _set:
+            print("")
+            print(name)
+            print("-" * len(name))
+            for directive in sorted(_set):
+                print(directive)
+
+    def print_modules_new(self, module, module_directives, module_deprecated_directives):
+        normal = list(module_directives - self.vim_syntax_nginx_directives - self.vim_syntax_nginx_deprecated_directives)
+        deprecated = list(module_deprecated_directives - self.vim_syntax_nginx_directives - self.vim_syntax_nginx_deprecated_directives)
+        normal.sort()
+        deprecated.sort()
+        out = list()
+        for directive in normal:
+            if directive not in self.vim_syntax_modules_directives:
+                out.append('syn keyword ngxDirectiveThirdParty contained %s' % directive)
+        for directive in deprecated:
+            if directive not in self.vim_syntax_modules_deprecated_directives:
+                out.append('syn keyword ngxDirectiveThirdPartyDeprecated contained %s' % directive)
+        if out:
+            print("")
+            if self.modules_txt.get(module):
+                print('" %s' % self.modules_txt.get(module))
+            if self.modules_uri.get(module):
+                print('" %s' % self.modules_uri.get(module))
+            print("\n".join(out))
+
+    def check(self):
+        self.extract_nginx_documentation_directives()
+        self.extract_nginx_source_directives()
+        self.extract_vim_syntax_directives()
+        self.extract_modules_source_directives()
+
+        for directive in sorted(self.vim_syntax_modules_directives):
+            if directive in self.vim_syntax_nginx_directives or directive in self.nginx_documentation_directives or directive in self.vim_syntax_nginx_deprecated_directives:
+                print("ERROR: modules directive %s overrides nginx directive" % directive)
+
+        for directive in sorted(self.vim_syntax_modules_deprecated_directives):
+            if directive in self.vim_syntax_nginx_deprecated_directives or directive in self.nginx_documentation_directives or directive in self.vim_syntax_nginx_directives:
+                print("ERROR: deprecated modules directive %s overrides nginx directive" % directive)
+
+        nginx_undocumented = self.nginx_source_directives - self.nginx_documentation_directives - self.nginx_undocumented_by_purpose
+        self.print_set("nginx undocumented directives", nginx_undocumented)
+
+        nginx_orphaned = self.vim_syntax_nginx_directives - self.nginx_source_directives - self.nginx_documentation_directives
+        self.print_set("nginx orphaned directives", nginx_orphaned)
+
+        nginx_new = self.nginx_source_directives - self.vim_syntax_nginx_directives
+        self.print_set("nginx new directives", nginx_new)
+
+        nginx_new_depreacted = self.nginx_source_deprecated_directives - self.vim_syntax_nginx_deprecated_directives
+        self.print_set("nginx new deprecated directives", nginx_new_depreacted)
+
+        modules_directives = set()
+        for module in self.modules:
+            module_directives = self.modules_source_directives[module]
+            module_deprecated_directives = self.modules_source_deprecated_directives[module]
+            modules_directives.update(module_directives, module_deprecated_directives)
+        vim_syntax_modules_directives = self.vim_syntax_modules_directives | self.vim_syntax_modules_deprecated_directives
+        modules_orphaned = vim_syntax_modules_directives - modules_directives
+        self.print_set("modules orphaned directives", modules_orphaned)
+
+        for module in self.modules:
+            module_directives = self.modules_source_directives[module]
+            module_deprecated_directives = self.modules_source_deprecated_directives[module]
+            self.print_modules_new(module, module_directives, module_deprecated_directives)
+
+    def overlapping_check(self):
+        self.extract_nginx_documentation_directives()
+        self.extract_nginx_source_directives()
+        self.extract_vim_syntax_directives()
+        self.extract_modules_source_directives()
+
+        seen_modules_directives = dict()
+        for directive in self.nginx_source_directives:
+            seen_modules_directives[directive] = 'nginx'
+        for directive in self.nginx_source_deprecated_directives:
+            seen_modules_directives[directive] = 'nginx'
+        for directive in self.nginx_documentation_directives:
+            if directive not in seen_modules_directives:
+                seen_modules_directives[directive] = 'nginx-plus'
+
+        for module in self.modules:
+            module_directives = self.modules_source_directives[module]
+            for directive in sorted(module_directives):
+                if directive in seen_modules_directives:
+                    print("directive %-32s from module %-32s ignored, it already defined in %-32s" % (directive, module, seen_modules_directives[directive]))
+                else:
+                    seen_modules_directives[directive] = module
+
+            module_deprecated_directives = self.modules_source_deprecated_directives[module]
+            for directive in sorted(module_deprecated_directives):
+                if directive in seen_modules_directives:
+                    print("deprecated directive %-32s from module %-32s ignored, it already defined in %-32s" % (directive, module, seen_modules_directives[directive]))
+                else:
+                    seen_modules_directives[directive] = module
+
+    def sync(self):
+        cwd = os.getcwd()
+        if os.path.isdir('nginx'):
+            os.chdir('nginx')
+            args = 'hg', '-y', 'pull'
+        else:
+            args = 'hg', '-y', 'clone', 'http://hg.nginx.org/nginx'
+        process = Process(*args)
+        if process.failed():
+            process.print_info("fatal error")
+            sys.exit(1)
+        os.chdir(cwd)
+        if os.path.isdir('nginx.org'):
+            os.chdir('nginx.org')
+            args = 'hg', '-y', 'pull'
+        else:
+            args = 'hg', '-y', 'clone', 'http://hg.nginx.org/nginx.org'
+        process = Process(*args)
+        if process.failed():
+            process.print_info("fatal error")
+            sys.exit(1)
+        os.chdir(cwd)
+
+    def get_filename(self, url):
+        response = requests.head(url, allow_redirects=False)
+        if response.status_code >= 300 and response.status_code < 400:
+            location = response.headers['Location']
+            name = location
+        else:
+            name = url
+        if name.endswith('/zip/master'):
+            return 'master.zip'
+        else:
+            return os.path.basename(name)
+
+    def download_file(self, url, module_filename):
+        response = requests.get(url)
+        with open(module_filename, 'wb') as module_file:
+            for chunk in response.iter_content(chunk_size=4096 * 1024):
+                module_file.write(chunk)
+
+    def download_all(self):
+        if not os.path.isdir(self.modules_dir):
+            os.mkdir(self.modules_dir)
+        for module in self.modules:
+            src = self.modules_src[module]
+            if self.verbose:
+                print("downloading module %s from %s" % (module, src))
+            module_dir = os.path.join(self.modules_dir, module)
+            if os.path.isdir(module_dir):
+                shutil.rmtree(module_dir)
+            os.mkdir(module_dir)
+            filename = self.get_filename(src)
+            module_filename = os.path.join(module_dir, filename)
+            self.download_file(src, module_filename)
+
+    def download_last(self):
+        if self.modules:
+            module = self.modules[-1]
+            src = self.modules_src[module]
+            if self.verbose:
+                print("downloading module %s from %s" % (module, src))
+            module_dir = os.path.join(self.modules_dir, module)
+            if os.path.isdir(module_dir):
+                shutil.rmtree(module_dir)
+            os.mkdir(module_dir)
+            filename = self.get_filename(src)
+            module_filename = os.path.join(module_dir, filename)
+            self.download_file(src, module_filename)
+        else:
+            sys.exit("modules list is empty, can't download last module")
+
+    def extract_module(self, module_filename):
+        directory = os.path.dirname(module_filename)
+        if module_filename.endswith('.tar.gz'):
+            args = 'tar', '-C', directory, '-xf', module_filename
+        elif module_filename.endswith('.zip'):
+            args = 'unzip', '-o', '-d', directory, module_filename
+        else:
+            sys.exit("don't know how to unpack file %s" % module_filename)
+        process = Process(*args)
+        if process.failed():
+            process.print_info("fatal error")
+            sys.exit(1)
+
+    def extract(self):
+        for module in self.modules:
+            if self.verbose:
+                print("extracting module %s" % module)
+            module_dir = os.path.join(self.modules_dir, module)
+            for entry in os.listdir(module_dir):
+                name = os.path.join(module_dir, entry)
+                if os.path.isdir(name):
+                    shutil.rmtree(name)
+                else:
+                    self.extract_module(name)
+
+    def run(self):
+        if self.args.sync:
+            self.sync()
+        if self.args.download_all:
+            self.download_all()
+        if self.args.download_last:
+            self.download_last()
+        if self.args.extract:
+            self.extract()
+        if self.args.check:
+            self.check()
+        if self.args.overlapping_check:
+            self.overlapping_check()
+        if not (self.args.sync or self.args.download_all or self.args.download_last or self.args.extract or self.args.check or self.args.overlapping_check):
+            self.check()
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="nginx-vim")
+    parser.add_argument("-q", required=False, action="store_true", dest="quiet", help="quiet")
+    parser.add_argument("-c", required=False, metavar="CONFIG", dest="config_filename", default="nginx-vim.conf", help="configuration file (nginx-vim.conf)")
+    parser.add_argument("--sync", required=False, action="store_true", dest="sync", help="synchronize with nginx and nginx.org repositories")
+    parser.add_argument("--download-all", required=False, action="store_true", dest="download_all", help="download all modules")
+    parser.add_argument("--download-last", required=False, action="store_true", dest="download_last", help="download last module")
+    parser.add_argument("--extract", required=False, action="store_true", dest="extract", help="extract all modules")
+    parser.add_argument("--check", required=False, action="store_true", dest="check", help="run directives check")
+    parser.add_argument("--overlapping-check", required=False, action="store_true", dest="overlapping_check", help="run module directives overlapping check")
+    args = parser.parse_args()
+    VimSyntax(args).run()
+
+
+if __name__ == '__main__':
+    main()
