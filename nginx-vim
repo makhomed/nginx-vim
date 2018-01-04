@@ -33,6 +33,8 @@ class Config(object):
         self.modules_exclude = dict()
         self.modules_directives = dict()
         self.modules = list()
+        if not os.path.isfile(config_filename):
+            sys.exit("fatal error: configuration file '%s' not exists" % config_filename)
         with codecs.open(config_filename, encoding='UTF-8') as config_file:
             lines = config_file.read().split('\n')
         for line in lines:
@@ -107,7 +109,8 @@ class VimSyntax(object):
         self.args = args
         self.quiet = args.quiet
         self.verbose = not self.quiet
-        self.config = Config(args.config_filename)
+        self.config_filename = args.config_filename
+        self.config = Config(self.config_filename)
         self.nginx_deprecated = self.config.nginx_deprecated
         self.nginx_undocumented_by_purpose = self.config.nginx_undocumented_by_purpose
         self.modules_deprecated = self.config.modules_deprecated
@@ -378,6 +381,8 @@ class VimSyntax(object):
                     seen_modules_directives[directive] = module
 
     def sync(self):
+        if os.path.islink(self.config_filename):
+            sys.exit("sync is not allowed: configuration file is symlink")
         cwd = os.getcwd()
         if os.path.isdir('nginx'):
             os.chdir('nginx')
@@ -419,6 +424,8 @@ class VimSyntax(object):
                 module_file.write(chunk)
 
     def download_all(self):
+        if os.path.islink(self.config_filename):
+            sys.exit("download-all is not allowed: configuration file is symlink")
         if not os.path.isdir(self.modules_dir):
             os.mkdir(self.modules_dir)
         for module in self.modules:
@@ -434,6 +441,8 @@ class VimSyntax(object):
             self.download_file(src, module_filename)
 
     def download_last(self):
+        if os.path.islink(self.config_filename):
+            sys.exit("download-last is not allowed: configuration file is symlink")
         if self.modules:
             module = self.modules[-1]
             src = self.modules_src[module]
@@ -463,6 +472,8 @@ class VimSyntax(object):
             sys.exit(1)
 
     def extract(self):
+        if os.path.islink(self.config_filename):
+            sys.exit("extract is not allowed: configuration file is symlink")
         for module in self.modules:
             if self.verbose:
                 print("extracting module %s" % module)
