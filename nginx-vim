@@ -9,6 +9,7 @@
  * install unzip
 """
 
+from __future__ import print_function
 import argparse
 import codecs
 import os
@@ -128,11 +129,13 @@ class VimSyntax(object):
         self.nginx_vim_sintax_filename = os.path.join(self.nginx_dir, 'contrib/vim/syntax/nginx.vim')
         self.nginx_docs_dir = os.path.join(self.nginx_org_dir, 'xml/en/docs')
         self.nginx_documentation_directives = set()
+        self.nginx_documentation_block_directives = set()
         self.nginx_source_directives = set()
         self.nginx_source_deprecated_directives = set()
         self.modules_source_directives = dict()
         self.modules_source_deprecated_directives = dict()
         self.vim_syntax_nginx_directives = set(['listen'])
+        self.vim_syntax_nginx_block_directives = set()
         self.vim_syntax_nginx_deprecated_directives = set()
         self.vim_syntax_modules_directives = set()
         self.vim_syntax_modules_deprecated_directives = set()
@@ -209,17 +212,34 @@ class VimSyntax(object):
         return out
 
     def extract_documentation_directives(self, documentation_filename):
+        directive = None
+        parse = False
         with codecs.open(documentation_filename, encoding='UTF-8') as documentation_file:
             for line in documentation_file:
                 match = re.match(r'<directive name="(?P<directive>\S+)">\s*$', line)
                 if match:
-                    self.nginx_documentation_directives.add(match.group('directive'))
+                    directive = match.group('directive')
+                    self.nginx_documentation_directives.add(directive)
+                    parse = True
+                if re.match(r"^</directive>\s*$", line):
+                    parse = False
+                if parse and re.match(r'^<syntax block="yes".*$', line):
+                    self.nginx_documentation_block_directives.add(directive)
 
     def extract_vim_syntax_directives(self):
         seen = set()
         with codecs.open(self.nginx_vim_sintax_filename, encoding='UTF-8') as vim_syntax_file:
             for line in vim_syntax_file:
-                match = re.match(r'^syn keyword (ngxDirective|ngxDirectiveBlock|ngxDirectiveImportant|ngxDirectiveControl|ngxDirectiveError) contained (?P<directive>\S+).*$', line)
+                match = re.match(r'^syn keyword (ngxDirectiveBlock) contained (?P<directive>\S+).*$', line)
+                if match:
+                    directive = match.group('directive')
+                    if directive in seen:
+                        print("ERROR: directive %s already defined in syntax/nginx.vim" % directive)
+                    else:
+                        self.vim_syntax_nginx_directives.add(directive)
+                        self.vim_syntax_nginx_block_directives.add(directive)
+                        seen.add(directive)
+                match = re.match(r'^syn keyword (ngxDirective|ngxDirectiveImportant|ngxDirectiveControl|ngxDirectiveError) contained (?P<directive>\S+).*$', line)
                 if match:
                     directive = match.group('directive')
                     if directive in seen:
@@ -329,6 +349,12 @@ class VimSyntax(object):
 
         nginx_orphaned = self.vim_syntax_nginx_directives - self.nginx_source_directives - self.nginx_documentation_directives
         self.print_set("nginx orphaned directives", nginx_orphaned)
+
+        block_documentation_only = self.nginx_documentation_block_directives - self.vim_syntax_nginx_block_directives
+        self.print_set("nginx documentation only block directives", block_documentation_only)
+
+        block_vim_syntax_only = self.vim_syntax_nginx_block_directives - self.nginx_documentation_block_directives
+        self.print_set("nginx vim syntax only block directives", block_vim_syntax_only)
 
         nginx_new = self.nginx_source_directives - self.vim_syntax_nginx_directives
         self.print_set("nginx new directives", nginx_new)
