@@ -15,10 +15,11 @@ import codecs
 import os
 import os.path
 import re
-import sys
+import requests
 import shutil
 import subprocess
-import requests
+import sys
+import traceback
 
 
 class Config(object):
@@ -432,7 +433,16 @@ class VimSyntax(object):
         os.chdir(cwd)
 
     def get_filename(self, url):
-        response = requests.head(url, allow_redirects=False)
+        tries = 0
+        while True:
+            try:
+                response = requests.head(url, allow_redirects=False, timeout=(60.0, 60.0))
+                break
+            except requests.exceptions.ConnectionError:
+                tries = tries + 1
+                if tries > 10:
+                    traceback.print_exc(file=sys.stdout)
+                    sys.exit(1)
         if response.status_code >= 300 and response.status_code < 400:
             location = response.headers['Location']
             name = location
@@ -444,7 +454,16 @@ class VimSyntax(object):
             return os.path.basename(name)
 
     def download_file(self, url, module_filename):
-        response = requests.get(url)
+        tries = 0
+        while True:
+            try:
+                response = requests.get(url, timeout=(60.0, 60.0))
+                break
+            except requests.exceptions.ConnectionError:
+                tries = tries + 1
+                if tries > 10:
+                    traceback.print_exc(file=sys.stdout)
+                    sys.exit(1)
         with open(module_filename, 'wb') as module_file:
             for chunk in response.iter_content(chunk_size=4096 * 1024):
                 module_file.write(chunk)
