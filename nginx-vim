@@ -15,12 +15,12 @@ import codecs
 import os
 import os.path
 import re
-import requests
 import shutil
 import subprocess
 import sys
 import traceback
 
+import requests
 
 class Config(object):
     def __init__(self, config_filename):
@@ -284,6 +284,8 @@ class VimSyntax(object):
             if directive in self.nginx_deprecated:
                 self.nginx_source_directives.remove(directive)
                 self.nginx_source_deprecated_directives.add(directive)
+        for directive in self.nginx_deprecated:  # for nginx-plus deprecated directives
+            self.nginx_source_deprecated_directives.add(directive)
 
     def extract_modules_source_directives(self):
         for module in self.modules:
