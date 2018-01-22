@@ -416,7 +416,7 @@ class VimSyntax(object):
         cwd = os.getcwd()
         if os.path.isdir('nginx'):
             os.chdir('nginx')
-            args = 'hg', '-y', 'pull'
+            args = 'hg', '-y', 'pull', '-u'
         else:
             args = 'hg', '-y', 'clone', 'http://hg.nginx.org/nginx'
         process = Process(*args)
@@ -426,7 +426,7 @@ class VimSyntax(object):
         os.chdir(cwd)
         if os.path.isdir('nginx.org'):
             os.chdir('nginx.org')
-            args = 'hg', '-y', 'pull'
+            args = 'hg', '-y', 'pull', '-u'
         else:
             args = 'hg', '-y', 'clone', 'http://hg.nginx.org/nginx.org'
         process = Process(*args)
