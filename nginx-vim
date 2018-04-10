@@ -348,6 +348,9 @@ class VimSyntax(object):
             if directive in self.vim_syntax_nginx_deprecated_directives or directive in self.nginx_documentation_directives or directive in self.vim_syntax_nginx_directives:
                 print("ERROR: deprecated modules directive %s overrides nginx directive" % directive)
 
+        nginx_documentation_only = self.nginx_documentation_directives - self.vim_syntax_nginx_directives - self.vim_syntax_nginx_deprecated_directives - self.vim_syntax_nginx_block_directives
+        self.print_set("nginx documentation only directives", nginx_documentation_only)
+
         nginx_undocumented = self.nginx_source_directives - self.nginx_documentation_directives - self.nginx_undocumented_by_purpose
         self.print_set("nginx undocumented directives", nginx_undocumented)
 
