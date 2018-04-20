@@ -456,6 +456,9 @@ class VimSyntax(object):
             name = url
         if name.endswith('/zip/master'):
             return 'master.zip'
+        match = re.match(r'^.*/zip/.*/master$', name)
+        if match:
+            return 'master.zip'
         else:
             return os.path.basename(name)
 
@@ -533,7 +536,9 @@ class VimSyntax(object):
                 name = os.path.join(module_dir, entry)
                 if os.path.isdir(name):
                     shutil.rmtree(name)
-                else:
+            for entry in os.listdir(module_dir):
+                name = os.path.join(module_dir, entry)
+                if os.path.isfile(name):
                     self.extract_module(name)
 
     def run(self):
