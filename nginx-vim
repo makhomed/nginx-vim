@@ -1,15 +1,13 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
 """
- * install python
- * install pip https://pip.pypa.io/en/stable/installing/
- * pip install requests
+ * yum install python3
+ * pip3 install requests
+ * yum install tar
+ * yum install unzip
  * install Mercurial
- * install tar
- * install unzip
 """
 
-from __future__ import print_function
 import argparse
 import codecs
 import os

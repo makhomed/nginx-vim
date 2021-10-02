@@ -11,11 +11,11 @@ Installation
 
 Also you need to install ``python``, ``pip``, ``requests``, ``tar``, ``unzip`` and Mercurial.
 
-- install python
-- install pip https://pip.pypa.io/en/stable/installing/
-- pip install requests
-- install tar
-- install unzip
+
+- yum install python3
+- pip3 install requests
+- yum install tar
+- yum install unzip
 - install Mercurial
 
 Upgrade
