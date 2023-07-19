@@ -547,6 +547,9 @@ class NginxModules:
                 if 'HTTP_SLICE_AHEAD_EXTRA_PATCHES' in line:
                     ignore = True
                     break
+                if 'NJS_XML_IMPLIES' in line:
+                    ignore = True
+                    break
                 if 'HTTP_RESPONSE_MASTER_SITES' in line:
                     ignore = True
                     break
@@ -661,11 +664,10 @@ class Main:
         Util.print_set("listed as removed, but exists in nginx sources", self.config.nginx_removed & self.nginx_source.directives)
 
         Util.print_set("+nginx_source -documentation", self.nginx_source.directives - self.nginx_documentation.directives - self.nginx_documentation.block_directives - self.config.nginx_undocumented_by_purpose)
-        Util.print_set("+documentation -nginx_source", (self.nginx_documentation.directives|self.nginx_documentation.block_directives) - (self.nginx_source.directives|self.config.nginx_commercial) )
+        Util.print_set("+documentation -nginx_source", (self.nginx_documentation.directives|self.nginx_documentation.block_directives) - (self.nginx_source.directives|self.config.nginx_commercial|self.config.nginx_removed))
+        Util.print_set("+nginx_source -vim_syntax", self.nginx_source.directives - self.vim_syntax.nginx_directives - self.vim_syntax.nginx_block_directives - self.vim_syntax.nginx_deprecated_directives - self.config.nginx_removed)
 
-        Util.print_set("+nginx_source -vim_syntax", self.nginx_source.directives - self.vim_syntax.nginx_directives - self.vim_syntax.nginx_block_directives - self.vim_syntax.nginx_deprecated_directives)
-        Util.print_set("+vim_syntax -nginx_source", (self.vim_syntax.nginx_directives | self.vim_syntax.nginx_block_directives | self.vim_syntax.nginx_deprecated_directives)
-                - (self.nginx_source.directives | self.config.nginx_commercial))
+        Util.print_set("+vim_syntax -nginx_source", (self.vim_syntax.nginx_directives | self.vim_syntax.nginx_block_directives | self.vim_syntax.nginx_deprecated_directives) - (self.nginx_source.directives | self.config.nginx_commercial))
 
         Util.print_set("deprecated in vim_syntax only, not in nginx_source", self.vim_syntax.nginx_deprecated_directives - self.config.nginx_deprecated)
         Util.print_set("deprecated in nginx_source only, not in vim_syntax", self.config.nginx_deprecated - self.vim_syntax.nginx_deprecated_directives)
@@ -674,8 +676,8 @@ class Main:
         Util.print_set("block directives: +vim_syntax -documentation", self.vim_syntax.nginx_block_directives - self.nginx_documentation.block_directives)
 
         Util.print_set("+vim_syntax -documentation", self.vim_syntax.nginx_directives - self.nginx_documentation.directives - self.config.nginx_undocumented_by_purpose)
-        Util.print_set("+documentation -vim_syntax", (self.nginx_documentation.directives | self.config.nginx_undocumented_by_purpose)
-                - (self.vim_syntax.nginx_directives | self.vim_syntax.nginx_deprecated_directives))
+        Util.print_set("+documentation -vim_syntax", ((self.nginx_documentation.directives | self.config.nginx_undocumented_by_purpose)
+                - (self.vim_syntax.nginx_directives | self.vim_syntax.nginx_deprecated_directives)) - self.config.nginx_removed )
 
         Util.print_set("vim_syntax modules directives overrides nginx directives",
             self.vim_syntax.modules_directives & (self.vim_syntax.nginx_directives|self.vim_syntax.nginx_block_directives|self.vim_syntax.nginx_deprecated_directives))
