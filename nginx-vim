@@ -547,6 +547,9 @@ class NginxModules:
                 if 'HTTP_SLICE_AHEAD_EXTRA_PATCHES' in line:
                     ignore = True
                     break
+                if 'NJS_QJS_IMPLIES' in line:
+                    ignore = True
+                    break
                 if 'NJS_XML_IMPLIES' in line:
                     ignore = True
                     break
